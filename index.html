@@ -96,7 +96,11 @@ h2.sec{font-family:var(--f-display);font-weight:500;font-size:15px;margin:22px 0
 .sheet{background:var(--surface);width:100%;max-width:640px;max-height:92%;overflow:auto;border-radius:18px 18px 0 0;padding-block:18px calc(18px + env(safe-area-inset-bottom,0px))}
 .sheet h3{font-family:var(--f-display);font-weight:700;font-size:18px;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center;gap:10px}
 .x{border:0;background:var(--chip);border-radius:999px;width:32px;height:32px;font-size:16px}
-.line{display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:center;padding-block:10px;border-bottom:1px solid var(--line)}
+.swipe{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+.swipe-del{position:absolute;inset:0 0 0 auto;width:96px;border:0;background:var(--bad);color:#fff;font-weight:700;font-size:13px}
+.line{position:relative;background:var(--surface);display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:center;padding-block:10px;touch-action:pan-y;transition:transform .2s ease;will-change:transform}
+.line.drag{transition:none}
+.swipe.gone{transition:height .2s ease,opacity .2s ease;opacity:0}
 .line img,.line .mini{width:48px;height:48px;border-radius:8px;object-fit:contain;background:#fff}
 .line .t{min-width:0;font-size:13px}
 .line .t b{display:block;font-weight:600}
@@ -326,9 +330,10 @@ function openCart(){
   bg.hidden=false;document.body.style.overflow="hidden";
   const next=TIERS[q.tier+1];
   sheet.innerHTML=`<h3 id="sheetTitle">Корзина<button class="x" type="button" aria-label="Закрыть">✕</button></h3>
-   ${q.rows.map(r=>`<div class="line">${r.p.img?`<img src="${r.p.img}" alt="">`:`<div class="mini"></div>`}
+   ${q.rows.map(r=>`<div class="swipe" data-id="${r.p.id}"><button type="button" class="swipe-del" data-del="${r.p.id}" tabindex="-1">Удалить</button><div class="line">${r.p.img?`<img src="${r.p.img}" alt="">`:`<div class="mini"></div>`}
      <div class="t"><b>${esc(r.p.name)}</b><span>${r.units.toLocaleString("ru-RU")} ${r.p.scheme==="kg"?"кг":"шт"} × ${rub(r.unit)}</span>${r.p.status==="order"?`<span style="display:block;color:var(--warn)">под заказ${r.p.lead?", "+r.p.lead:""}</span>`:""}</div>
-     <div class="r">${rub(r.sum,0)}<div class="step"><button type="button" data-dec="${r.p.id}" aria-label="Меньше">−</button>${isBox(r.p)?`<output>${qty(r.p,r.boxes)}</output>`:qtyInput(r.p,r.boxes)}<button type="button" data-inc="${r.p.id}" aria-label="Больше">+</button></div></div></div>`).join("")}
+     <div class="r">${rub(r.sum,0)}<div class="step"><button type="button" data-dec="${r.p.id}" aria-label="Меньше">−</button>${isBox(r.p)?`<output>${qty(r.p,r.boxes)}</output>`:qtyInput(r.p,r.boxes)}<button type="button" data-inc="${r.p.id}" aria-label="Больше">+</button></div></div></div></div>`).join("")}
+   <p class="meta" style="margin:8px 0 0">Чтобы удалить товар, проведите по строке влево.</p>
    <div class="totals">
      <div><span>Сумма до скидки</span><b>${rub(q.base,0)}</b></div>
      <div><span>Ступень цены</span><b>${TIER_NAMES[q.tier]}</b></div>
@@ -423,6 +428,47 @@ function submit(f){
   sheet.querySelector("#newo").onclick=()=>{cart={};save();closeSheet();renderList()};
 }
 
+
+/* Свайп влево по строке корзины — удалить (как диалоги в Telegram) */
+(function(){
+  const OPEN=96; let st=null, opened=null;
+  const close=sw=>{ if(!sw)return; const l=sw.querySelector(".line"); l.style.transform=""; if(opened===sw)opened=null; };
+  function remove(id){
+    const sw=document.querySelector(`.swipe[data-id="${id}"]`);
+    const done=()=>{ delete cart[id]; save(); renderList(); openCart(); if(tg&&tg.HapticFeedback) try{tg.HapticFeedback.impactOccurred("medium")}catch(e){} };
+    if(!sw){done();return}
+    sw.style.height=sw.offsetHeight+"px"; sw.classList.add("gone");
+    requestAnimationFrame(()=>{sw.style.height="0px"}); setTimeout(done,200);
+  }
+  document.addEventListener("click",e=>{
+    const d=e.target.closest("[data-del]"); if(d){e.stopPropagation(); remove(d.dataset.del); return}
+    if(opened && !e.target.closest(".swipe.open-now")) close(opened);
+  },true);
+  document.addEventListener("pointerdown",e=>{
+    const line=e.target.closest(".swipe .line"); if(!line||e.target.closest("button,input,label"))return;
+    if(opened && opened!==line.parentElement) close(opened);
+    st={line,sw:line.parentElement,x:e.clientX,y:e.clientY,base:opened===line.parentElement?-OPEN:0,dx:0,mode:null,id:e.pointerId};
+  });
+  document.addEventListener("pointermove",e=>{
+    if(!st||e.pointerId!==st.id)return;
+    const dx=e.clientX-st.x, dy=e.clientY-st.y;
+    if(!st.mode){ if(Math.abs(dx)<8&&Math.abs(dy)<8)return; st.mode=Math.abs(dx)>Math.abs(dy)?"h":"v"; if(st.mode==="h"){st.line.classList.add("drag");try{st.line.setPointerCapture(e.pointerId)}catch(_){}} }
+    if(st.mode!=="h")return;
+    e.preventDefault();
+    st.dx=Math.min(0,st.base+dx);
+    st.line.style.transform=`translateX(${st.dx}px)`;
+  },{passive:false});
+  const end=e=>{
+    if(!st||(e&&e.pointerId!==st.id))return;
+    const {line,sw,dx,mode}=st; st=null; line.classList.remove("drag");
+    if(mode!=="h")return;
+    const w=sw.offsetWidth;
+    if(-dx>w*0.55){ line.style.transform=`translateX(${-w}px)`; remove(sw.dataset.id); }
+    else if(-dx>OPEN*0.5){ line.style.transform=`translateX(${-OPEN}px)`; opened=sw; sw.classList.add("open-now"); setTimeout(()=>sw.classList.remove("open-now"),0); }
+    else { line.style.transform=""; if(opened===sw)opened=null; }
+  };
+  document.addEventListener("pointerup",end); document.addEventListener("pointercancel",end);
+})();
 /* Telegram theme */
 if(tg){
   try{tg.ready();tg.expand();
