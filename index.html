@@ -75,6 +75,10 @@ h2.sec{font-family:var(--f-display);font-weight:500;font-size:15px;margin:22px 0
 .add:disabled{background:var(--chip);color:var(--muted);cursor:default}
 .step{display:flex;align-items:center;justify-content:space-between;border-radius:10px;background:var(--accent-soft)}
 .step button{border:0;background:none;width:38px;height:38px;font-size:20px;font-weight:700;color:var(--accent)}
+.qwrap{display:flex;align-items:baseline;justify-content:center;gap:3px;font-weight:700;font-size:13px;cursor:text}
+.qin{width:56px;border:1px solid transparent;border-radius:6px;background:var(--surface);color:var(--fg);font-weight:700;font-size:14px;text-align:center;padding:4px 2px;font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+.qin:focus{border-color:var(--accent);outline:none}
+.qin::-webkit-inner-spin-button,.qin::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .step output{font-weight:700;font-size:13px;text-align:center;font-variant-numeric:tabular-nums}
 .brandcard{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:14px;display:grid;gap:8px;margin-top:12px}
 .brandcard table{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
@@ -98,7 +102,9 @@ h2.sec{font-family:var(--f-display);font-weight:500;font-size:15px;margin:22px 0
 .line .t b{display:block;font-weight:600}
 .line .t span{color:var(--muted);font-variant-numeric:tabular-nums}
 .line .r{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;display:grid;gap:4px;justify-items:end}
-.line .step{width:112px}
+.line .step{width:128px}
+.line .qin{width:42px;font-size:13px}
+.line .qwrap{gap:2px}
 .line .step button{width:32px;height:30px;font-size:17px}
 .totals{display:grid;gap:4px;padding-block:12px;font-variant-numeric:tabular-nums}
 .totals div{display:flex;justify-content:space-between;gap:10px}
@@ -236,12 +242,13 @@ function boxText(p){
   if(isBox(p)) return `Коробка: ${p.per_box.toLocaleString("ru-RU")} шт${pack}`;
   return `Поштучно · в коробке ${esc(p.box_desc||p.per_box+" шт")}`;
 }
+function qtyInput(p,n){return `<label class="qwrap"><input class="qin" type="number" inputmode="numeric" min="0" max="1000" step="1" data-set="${p.id}" value="${n}" aria-label="Количество, шт: ${esc(p.name)}"><span>шт</span></label>`}
 function stepper(p){
   const n=cart[p.id]||0;
   if(!sellable(p)) return `<button class="add" type="button" disabled>${p.status==="out"?"Нет в наличии":"Уточнить у менеджера"}</button>`;
   if(!n) return `<button class="add" type="button" data-add="${p.id}">${isBox(p)?"+ коробка":"В корзину"}</button>`;
-  const lbl=isBox(p)?`${n} кор · ${(n*p.per_box).toLocaleString("ru-RU")} шт`:`${n} шт`;
-  return `<div class="step"><button type="button" data-dec="${p.id}" aria-label="Меньше">−</button><output>${lbl}</output><button type="button" data-inc="${p.id}" aria-label="Больше">+</button></div>`;
+  const mid=isBox(p)?`<output>${n} кор · ${(n*p.per_box).toLocaleString("ru-RU")} шт</output>`:qtyInput(p,n);
+  return `<div class="step"><button type="button" data-dec="${p.id}" aria-label="Меньше">−</button>${mid}<button type="button" data-inc="${p.id}" aria-label="Больше">+</button></div>`;
 }
 function card(p,q){
   const badges=[p.tag?`<span class="badge">${p.tag}</span>`:"",p.status==="order"?`<span class="badge order">${p.lead?"под заказ "+p.lead:"под заказ"}</span>`:"",p.status==="out"?`<span class="badge out">нет</span>`:""].join("");
@@ -297,6 +304,14 @@ document.addEventListener("click",e=>{
   change(id,t.dataset.dec?-1:1);
 });
 document.getElementById("q").addEventListener("input",e=>{query=e.target.value;renderList()});
+/* ручной ввод количества для поштучных товаров */
+document.addEventListener("change",e=>{
+  const t=e.target.closest("[data-set]"); if(!t)return;
+  const id=t.dataset.set; let v=Math.floor(Number(String(t.value).replace(",",".")));
+  if(!isFinite(v)||v<0)v=0; v=Math.min(v,1000);
+  change(id,v-(cart[id]||0));
+});
+document.addEventListener("keydown",e=>{const t=e.target.closest&&e.target.closest("[data-set]"); if(t&&e.key==="Enter"){e.preventDefault();t.blur()}});
 
 /* Sheets */
 const bg=document.getElementById("sheetBg"), sheet=document.getElementById("sheet");
@@ -313,7 +328,7 @@ function openCart(){
   sheet.innerHTML=`<h3 id="sheetTitle">Корзина<button class="x" type="button" aria-label="Закрыть">✕</button></h3>
    ${q.rows.map(r=>`<div class="line">${r.p.img?`<img src="${r.p.img}" alt="">`:`<div class="mini"></div>`}
      <div class="t"><b>${esc(r.p.name)}</b><span>${r.units.toLocaleString("ru-RU")} ${r.p.scheme==="kg"?"кг":"шт"} × ${rub(r.unit)}</span>${r.p.status==="order"?`<span style="display:block;color:var(--warn)">под заказ${r.p.lead?", "+r.p.lead:""}</span>`:""}</div>
-     <div class="r">${rub(r.sum,0)}<div class="step"><button type="button" data-dec="${r.p.id}" aria-label="Меньше">−</button><output>${qty(r.p,r.boxes)}</output><button type="button" data-inc="${r.p.id}" aria-label="Больше">+</button></div></div></div>`).join("")}
+     <div class="r">${rub(r.sum,0)}<div class="step"><button type="button" data-dec="${r.p.id}" aria-label="Меньше">−</button>${isBox(r.p)?`<output>${qty(r.p,r.boxes)}</output>`:qtyInput(r.p,r.boxes)}<button type="button" data-inc="${r.p.id}" aria-label="Больше">+</button></div></div></div>`).join("")}
    <div class="totals">
      <div><span>Сумма до скидки</span><b>${rub(q.base,0)}</b></div>
      <div><span>Ступень цены</span><b>${TIER_NAMES[q.tier]}</b></div>
@@ -335,7 +350,7 @@ function openForm(){
   const q=quote(cart);
   sheet.innerHTML=`<h3 id="sheetTitle">Заявка на счёт<button class="x" type="button" aria-label="Закрыть">✕</button></h3>
   <form id="f" novalidate>
-    <label for="f-name">Имя и компания<input id="f-name" type="text" autocomplete="name" value="${esc(form.name)}" required></label>
+    <label for="f-name">ФИО и название Вашей компании<input id="f-name" type="text" autocomplete="name" value="${esc(form.name)}" required></label>
     <label for="f-phone">Телефон<input id="f-phone" type="tel" autocomplete="tel" value="${esc(form.phone)}" placeholder="+7…" required></label>
     <div><div style="font-size:13px;font-weight:600;margin-bottom:5px">Покупатель</div><div class="seg">
       <label><input type="radio" name="buyer" id="b-co" value="company" ${form.buyer==="company"?"checked":""}>Юрлицо / ИП</label>
@@ -347,7 +362,8 @@ function openForm(){
     <label for="f-city" id="cityWrap" ${form.delivery==="tk"?"":"hidden"}>Город и ТК<input id="f-city" type="text" value="${esc(form.city)}" placeholder="Казань, СДЭК"></label>
     <div><div style="font-size:13px;font-weight:600;margin-bottom:5px">Оплата</div><div class="seg">
       <label><input type="radio" name="pay" id="p-inv" value="invoice" ${form.pay==="invoice"?"checked":""}>По счёту</label>
-      <label><input type="radio" name="pay" id="p-cash" value="cash" ${form.pay==="cash"?"checked":""}>Наличными при получении</label></div></div>
+      <label id="cashWrap" ${form.delivery==="tk"?"hidden":""}><input type="radio" name="pay" id="p-cash" value="cash" ${form.pay==="cash"?"checked":""}>Наличными при получении</label></div>
+      <p class="meta" id="tkPayNote" style="margin:6px 0 0" ${form.delivery==="tk"?"":"hidden"}>При доставке транспортной компанией — только оплата по счёту.</p></div>
     <label for="f-com">Комментарий<textarea id="f-com" placeholder="Сроки, брендирование, вопросы">${esc(form.comment)}</textarea></label>
     <div class="err" id="ferr" hidden></div>
     <div class="totals" style="padding-block:0"><div class="grand"><span>${q.rows.length} поз. на сумму</span><span>${rub(q.total,0)}</span></div></div>
@@ -356,7 +372,14 @@ function openForm(){
   sheet.querySelector(".x").onclick=closeSheet;
   sheet.querySelector("#back").onclick=openCart;
   const f=sheet.querySelector("#f");
-  f.addEventListener("change",()=>{readForm(f);f.querySelector("#innWrap").hidden=form.buyer==="person";f.querySelector("#cityWrap").hidden=form.delivery!=="tk"});
+  const sync=()=>{
+    if(form.delivery==="tk"&&form.pay==="cash"){form.pay="invoice";f.querySelector("#p-inv").checked=true}
+    f.querySelector("#innWrap").hidden=form.buyer==="person";
+    f.querySelector("#cityWrap").hidden=form.delivery!=="tk";
+    f.querySelector("#cashWrap").hidden=form.delivery==="tk";
+    f.querySelector("#tkPayNote").hidden=form.delivery!=="tk";
+  };
+  f.addEventListener("change",()=>{readForm(f);sync()});
   f.addEventListener("submit",e=>{e.preventDefault();submit(f)});
 }
 function readForm(f){
@@ -381,11 +404,12 @@ function submit(f){
   const err=f.querySelector("#ferr");
   const digits=form.phone.replace(/\D/g,"");
   let m="";
-  if(!form.name)m="Укажите имя или название компании.";
+  if(!form.name)m="Укажите ФИО и название компании.";
   else if(digits.length<10)m="Проверьте телефон: нужно не меньше 10 цифр.";
   else if(form.buyer==="company"&&!/^\d{10}(\d{2})?$/.test(form.inn))m="ИНН — 10 цифр для юрлица или 12 для ИП.";
   else if(form.delivery==="tk"&&!form.city)m="Укажите город и транспортную компанию.";
   err.hidden=!m;err.textContent=m;if(m)return;
+  if(form.delivery==="tk")form.pay="invoice";
   const q=quote(cart);
   const payload={v:1,items:q.rows.map(r=>[r.p.id,r.boxes]),f:form,total:q.total};
   if(tg){ try{ tg.sendData(JSON.stringify(payload)); return }catch(e){ err.hidden=false; err.textContent="Не удалось отправить заявку. Откройте каталог кнопкой «Открыть каталог» под полем ввода в чате с ботом."; return } }
